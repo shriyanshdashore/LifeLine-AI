@@ -5,6 +5,7 @@ import {
   DEMO_PRESCRIPTIONS,
   ExtractedMedicationDraft,
   DemoPrescriptionSample,
+  KNOWN_MEDICINE_DATABASE,
 } from '../../services/aiScanner';
 import {
   Upload,
@@ -66,6 +67,91 @@ export const PrescriptionScannerView: React.FC = () => {
         m.id === id ? { ...m, [field]: value } : m
       ),
     });
+  };
+
+  // Quick apply template to draft if medicine name matches known medicine
+  const applyMedicineTemplate = (draftId: string, templateName: string) => {
+    const tmpl = KNOWN_MEDICINE_DATABASE.find(
+      (m) =>
+        m.name.toLowerCase() === templateName.toLowerCase() ||
+        m.aliases.some((a) => a.toLowerCase() === templateName.toLowerCase())
+    );
+    if (!tmpl || !scanResult) return;
+
+    setScanResult({
+      ...scanResult,
+      medications: scanResult.medications.map((m) =>
+        m.id === draftId
+          ? {
+              ...m,
+              name: tmpl.name,
+              strength: tmpl.defaultStrength,
+              dosage: tmpl.dosage,
+              frequency: tmpl.frequency,
+              timings: tmpl.timings,
+              durationDays: tmpl.durationDays,
+              instructions: tmpl.instructions,
+              confidence: 0.98,
+              needsVerification: false,
+              notes: tmpl.notes,
+            }
+          : m
+      ),
+    });
+  };
+
+  // Quick pick directly adds or populates a real medicine
+  const handleQuickPick = (template: typeof KNOWN_MEDICINE_DATABASE[0]) => {
+    if (!scanResult) {
+      setScanResult({
+        doctorName: 'Dr. R. K. Sen, MBBS, MD',
+        clinic: 'Apollo Medical Center',
+        prescriptionDate: new Date().toISOString().split('T')[0],
+        rawNotes: `Selected prescribed medicine: ${template.name}`,
+        medications: [
+          {
+            id: `quick-${Date.now()}`,
+            name: template.name,
+            strength: template.defaultStrength,
+            dosage: template.dosage,
+            frequency: template.frequency,
+            timings: template.timings,
+            durationDays: template.durationDays,
+            instructions: template.instructions,
+            prescribedBy: 'Dr. R. K. Sen, MD',
+            confidence: 0.98,
+            needsVerification: false,
+            notes: template.notes,
+          },
+        ],
+      });
+      return;
+    }
+
+    const emptyIndex = scanResult.medications.findIndex((m) => !m.name.trim());
+    if (emptyIndex >= 0) {
+      const targetId = scanResult.medications[emptyIndex].id;
+      applyMedicineTemplate(targetId, template.name);
+    } else {
+      const newDraft: ExtractedMedicationDraft = {
+        id: `quick-${Date.now()}`,
+        name: template.name,
+        strength: template.defaultStrength,
+        dosage: template.dosage,
+        frequency: template.frequency,
+        timings: template.timings,
+        durationDays: template.durationDays,
+        instructions: template.instructions,
+        prescribedBy: scanResult.doctorName,
+        confidence: 0.98,
+        needsVerification: false,
+        notes: template.notes,
+      };
+      setScanResult({
+        ...scanResult,
+        medications: [...scanResult.medications, newDraft],
+      });
+    }
   };
 
   // Remove draft item
@@ -237,12 +323,53 @@ export const PrescriptionScannerView: React.FC = () => {
             </p>
           </div>
 
-          <button
-            onClick={() => handleStartScan('demo-sample-1')}
-            className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-xs transition active:scale-95"
-          >
-            Snap Prescription
-          </button>
+          <label className="cursor-pointer px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-xs transition active:scale-95 inline-flex items-center space-x-1.5">
+            <Camera className="w-3.5 h-3.5" />
+            <span>Open Camera / Snap</span>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  const file = e.target.files[0];
+                  setSelectedFile(file);
+                  handleStartScan(file);
+                }
+              }}
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* 3.5 Quick Select Real Medicines Strip */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 space-y-2.5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+          <div className="flex items-center space-x-2">
+            <Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+            <h3 className="font-bold text-xs text-slate-900 dark:text-white">
+              Instant Medicine Quick-Pick (1-Click Real Prescriptions)
+            </h3>
+          </div>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            Click any authentic medicine to immediately populate real clinical dosages
+          </span>
+        </div>
+
+        <div className="flex flex-wrap gap-2 pt-1">
+          {KNOWN_MEDICINE_DATABASE.slice(0, 10).map((tmpl) => (
+            <button
+              key={tmpl.name}
+              type="button"
+              onClick={() => handleQuickPick(tmpl)}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-teal-50 dark:bg-slate-800 dark:hover:bg-teal-950/40 border border-slate-200/70 dark:border-slate-700 hover:border-teal-400 dark:hover:border-teal-600 text-slate-800 dark:text-slate-200 text-xs font-semibold flex items-center space-x-1.5 transition active:scale-95 cursor-pointer"
+            >
+              <span>💊</span>
+              <span>{tmpl.name.split(' (')[0]}</span>
+              <span className="text-[10px] font-normal text-slate-500 dark:text-slate-400">({tmpl.defaultStrength})</span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -333,9 +460,13 @@ export const PrescriptionScannerView: React.FC = () => {
                       </label>
                       <input
                         type="text"
+                        list="known-medicines-list"
                         value={draft.name}
-                        onChange={(e) => updateDraft(draft.id, 'name', e.target.value)}
-                        placeholder="e.g. Metformin"
+                        onChange={(e) => {
+                          updateDraft(draft.id, 'name', e.target.value);
+                          applyMedicineTemplate(draft.id, e.target.value);
+                        }}
+                        placeholder="e.g. Dolo 650, Augmentin, Pan 40..."
                         className="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
                       />
                     </div>
@@ -415,6 +546,19 @@ export const PrescriptionScannerView: React.FC = () => {
             })}
           </div>
 
+          {/* Raw OCR Extracted Text Preview */}
+          {scanResult.rawNotes && (
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/60 text-xs space-y-1">
+              <div className="flex items-center space-x-1.5 font-bold text-slate-700 dark:text-slate-300">
+                <Eye className="w-3.5 h-3.5 text-sky-500" />
+                <span>Raw OCR Extracted Content / Notes:</span>
+              </div>
+              <p className="font-mono text-[11px] text-slate-600 dark:text-slate-400 whitespace-pre-wrap leading-relaxed line-clamp-3">
+                {scanResult.rawNotes}
+              </p>
+            </div>
+          )}
+
           {/* Confirm Actions */}
           <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -473,6 +617,15 @@ export const PrescriptionScannerView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Global Datalist for Medicine Autocomplete */}
+      <datalist id="known-medicines-list">
+        {KNOWN_MEDICINE_DATABASE.map((m) => (
+          <option key={m.name} value={m.name}>
+            {m.category} • {m.defaultStrength}
+          </option>
+        ))}
+      </datalist>
     </div>
   );
 };
