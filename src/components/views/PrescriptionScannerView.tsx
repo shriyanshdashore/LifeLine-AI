@@ -34,6 +34,8 @@ export const PrescriptionScannerView: React.FC = () => {
     prescriptionDate: string;
     rawNotes: string;
     medications: ExtractedMedicationDraft[];
+    scanQuality: 'high' | 'medium' | 'low';
+    rawOcrText?: string;
   } | null>(null);
 
   const [confirmModalOpen, setConfirmModalOpen] = useState<boolean>(false);
@@ -50,6 +52,8 @@ export const PrescriptionScannerView: React.FC = () => {
         prescriptionDate: result.prescriptionDate,
         rawNotes: result.rawNotes,
         medications: result.medications,
+        scanQuality: result.scanQuality,
+        rawOcrText: result.rawOcrText,
       });
     } catch (err) {
       console.error('Scan error', err);
@@ -108,6 +112,7 @@ export const PrescriptionScannerView: React.FC = () => {
         clinic: 'Apollo Medical Center',
         prescriptionDate: new Date().toISOString().split('T')[0],
         rawNotes: `Selected prescribed medicine: ${template.name}`,
+        scanQuality: 'high',
         medications: [
           {
             id: `quick-${Date.now()}`,
@@ -414,6 +419,40 @@ export const PrescriptionScannerView: React.FC = () => {
             </button>
           </div>
 
+          {/* Quality & Handwriting Guidance Banner */}
+          {(scanResult.scanQuality === 'low' || scanResult.medications.some((m) => !m.name.trim())) && (
+            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/80 text-amber-900 dark:text-amber-200 text-xs space-y-2.5">
+              <div className="flex items-center space-x-2 font-bold text-sm text-amber-800 dark:text-amber-300">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>Doctor Cursive Handwriting Detected (हैंडराइटिंग प्रिस्क्रिप्शन)</span>
+              </div>
+              <p className="leading-relaxed text-amber-800/90 dark:text-amber-200/90 text-xs">
+                Doctor ki handwritten cursive writing optical scanner dwara 100% read nahi ho paati. Kripya niche diye gaye <strong>Quick Pick</strong> button par tap karein ya medicine ka naam likhein:
+              </p>
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                {KNOWN_MEDICINE_DATABASE.slice(0, 10).map((m) => (
+                  <button
+                    key={m.name}
+                    type="button"
+                    onClick={() => {
+                      const emptyIdx = scanResult.medications.findIndex((med) => !med.name.trim());
+                      if (emptyIdx >= 0) {
+                        applyMedicineTemplate(scanResult.medications[emptyIdx].id, m.name);
+                      } else if (scanResult.medications.length > 0) {
+                        applyMedicineTemplate(scanResult.medications[0].id, m.name);
+                      } else {
+                        handleQuickPick(m);
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-white dark:bg-amber-900/60 border border-amber-300/80 dark:border-amber-700 font-semibold text-[11px] text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-800 transition active:scale-95 shadow-2xs"
+                  >
+                    💊 {m.name.split(' (')[0]} <span className="text-[10px] opacity-75">({m.defaultStrength})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Cards List */}
           <div className="space-y-3">
             {scanResult.medications.map((draft, idx) => {
@@ -540,22 +579,55 @@ export const PrescriptionScannerView: React.FC = () => {
                         className="w-full px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
                       />
                     </div>
+
+                    {!draft.name.trim() && (
+                      <div className="sm:col-span-2 lg:col-span-4 p-2.5 rounded-xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/60 text-xs space-y-1.5">
+                        <span className="font-bold text-sky-800 dark:text-sky-300 text-[11px] flex items-center space-x-1">
+                          <Sparkles className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+                          <span>Tap your prescribed medicine to auto-fill details:</span>
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {['Evion 400', 'Dolo 650', 'Pan-D', 'Augmentin 625', 'Azithral 500', 'Montair-LC', 'Cetzine 10', 'Telma 40', 'Shelcal 500'].map((sug) => (
+                            <button
+                              key={sug}
+                              type="button"
+                              onClick={() => applyMedicineTemplate(draft.id, sug)}
+                              className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-sky-200 dark:border-sky-700 text-[11px] font-semibold text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition active:scale-95"
+                            >
+                              + {sug}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Raw OCR Extracted Text Preview */}
+          {/* Prescription Notes & Clinical Details */}
           {scanResult.rawNotes && (
-            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/60 text-xs space-y-1">
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/60 text-xs space-y-2">
               <div className="flex items-center space-x-1.5 font-bold text-slate-700 dark:text-slate-300">
-                <Eye className="w-3.5 h-3.5 text-sky-500" />
-                <span>Raw OCR Extracted Content / Notes:</span>
+                <Info className="w-3.5 h-3.5 text-sky-500" />
+                <span>Prescription Notes & Clinical Details:</span>
               </div>
-              <p className="font-mono text-[11px] text-slate-600 dark:text-slate-400 whitespace-pre-wrap leading-relaxed line-clamp-3">
+              <p className="text-slate-600 dark:text-slate-400 text-xs leading-relaxed">
                 {scanResult.rawNotes}
               </p>
+
+              {/* Collapsible raw diagnostics log - hidden from regular users so no gibberish shows */}
+              {scanResult.rawOcrText && (
+                <details className="pt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  <summary className="cursor-pointer font-medium hover:text-slate-700 dark:hover:text-slate-300 select-none">
+                    🔍 View Optical Scanner Log (Raw Debug)
+                  </summary>
+                  <div className="mt-2 p-2.5 rounded-lg bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 font-mono text-[10px] whitespace-pre-wrap text-slate-600 dark:text-slate-400">
+                    {scanResult.rawOcrText}
+                  </div>
+                </details>
+              )}
             </div>
           )}
 
